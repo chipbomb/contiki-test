@@ -99,6 +99,7 @@ coap_block1_handler(void *request, void *response, uint8_t *target, size_t *len,
   if(target && len) {
     memcpy(target + packet->block1_offset, payload, pay_len);
     *len = packet->block1_offset + pay_len;
+	//printf("pay_len=%u,len = %u, offset = %u\n",pay_len,*len, packet->block1_offset);
   }
 
   if(IS_OPTION(packet, COAP_OPTION_BLOCK1)) {
@@ -113,6 +114,10 @@ coap_block1_handler(void *request, void *response, uint8_t *target, size_t *len,
       coap_set_status_code(response, CONTINUE_2_31);
       return 1;
     }
+   else {
+	coap_set_status_code(response, CONTENT_2_05);
+	//printf("last packet\n");
+   }
   }
 
   return 0;

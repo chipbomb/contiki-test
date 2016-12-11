@@ -98,7 +98,7 @@ coap_receive(void)
 
       /* handle requests */
       if(message->code >= COAP_GET && message->code <= COAP_DELETE) {
-
+	PRINTF("message code %d\n", message->code);
         /* use transaction buffer for response to confirmable request */
         if((transaction =
               coap_new_transaction(message->mid, &UIP_IP_BUF->srcipaddr,
@@ -141,7 +141,7 @@ coap_receive(void)
               if(erbium_status_code == NO_ERROR) {
 
                 /* TODO coap_handle_blockwise(request, response, start_offset, end_offset); */
-
+		
                 /* resource is unaware of Block1 */
                 if(IS_OPTION(message, COAP_OPTION_BLOCK1)
                    && response->code < BAD_REQUEST_4_00

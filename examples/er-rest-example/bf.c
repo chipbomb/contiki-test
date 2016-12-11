@@ -1,0 +1,310 @@
+#include "coap.h"
+#include <string.h>
+#include <iostream>
+#include <bitset>
+#include <openssl/hmac.h>
+#include <algorithm>
+#include "json/json.h"
+
+#define BF_SIZE 1024
+#define CHUNK_SIZE 10
+#define SHA_DIGEST_LENGTH 20
+#define NUM_KEY 16
+
+using namespace std;
+
+bitset<BF_SIZE> bf;
+string keys[NUM_KEY];
+
+static str output_file = { 0, NULL };   /* output file name */
+static FILE *file = NULL;               /* output file stream */
+int challenge2;
+string userid;
+int step = 1;
+
+
+std::string random_string( size_t length )
+{
+    auto randchar = []() -> char
+    {
+        const char charset[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+        const size_t max_index = (sizeof(charset) - 1);
+        return charset[ rand() % max_index ];
+    };
+    std::string str(length,0);
+    std::generate_n( str.begin(), length, randchar );
+    return str;
+}
+
+void bf_add(string* keys, int numkey, string value) {
+	//int lastbit;
+	for (int j = 0;j < numkey;j++) {
+		unsigned char* result;
+		unsigned int len = 20;
+		result = (unsigned char*)malloc(sizeof(char) * SHA_DIGEST_LENGTH);
+
+		HMAC_CTX ctx;
+		HMAC_CTX_init(&ctx);
+
+		// Using sha1 hash engine here.
+		// You may use other hash engines. e.g EVP_md5(), EVP_sha224, EVP_sha512, etc
+		HMAC_Init_ex(&ctx, keys[j].c_str(), strlen(keys[j].c_str()), EVP_sha1(), NULL);
+		HMAC_Update(&ctx, (unsigned char*)value.c_str(), strlen(value.c_str()));
+		HMAC_Final(&ctx, result, &len);
+		HMAC_CTX_cleanup(&ctx);
+	
+		bitset<CHUNK_SIZE> chunk;
+	
+		for(int i = 0; i < SHA_DIGEST_LENGTH; ++i)
+	    	{
+			unsigned char cur = result[i];
+			int offset = i * 8;
+
+			for(int bit = 0; bit < 8; ++bit)
+			{
+				//cout << offset << " ";
+				//b[offset] = cur & 1;
+				chunk[offset%CHUNK_SIZE] = cur & 1;
+				++offset;   // Move to next bit in b
+				if (offset%CHUNK_SIZE==0) {
+					unsigned long index = chunk.to_ulong();
+					bf[index] = 1;
+					//cout << index << " " << chunk << endl;
+				}
+				cur >>= 1;  // Move to next bit in array
+			}
+	    	}
+	}
+	
+
+}
+
+bool bf_lookup(string *keys, int numkey, string value, string bf_string) {
+	bool ok = 1;
+	bitset<BF_SIZE> bf(bf_string);
+	//cout << bf << endl;
+	for (int j = 0;j < numkey;j++) {
+		unsigned char* result;
+		unsigned int len = 20;
+		result = (unsigned char*)malloc(sizeof(char) * SHA_DIGEST_LENGTH);
+
+		HMAC_CTX ctx;
+		HMAC_CTX_init(&ctx);
+
+		// Using sha1 hash engine here.
+		// You may use other hash engines. e.g EVP_md5(), EVP_sha224, EVP_sha512, etc
+		HMAC_Init_ex(&ctx, keys[j].c_str(), strlen(keys[j].c_str()), EVP_sha1(), NULL);
+		HMAC_Update(&ctx, (unsigned char*)value.c_str(), strlen(value.c_str()));
+		HMAC_Final(&ctx, result, &len);
+		HMAC_CTX_cleanup(&ctx);
+	
+		bitset<CHUNK_SIZE> chunk;
+	
+		for(int i = 0; i < SHA_DIGEST_LENGTH; ++i)
+	    	{
+			unsigned char cur = result[i];
+			int offset = i * 8;
+
+			for(int bit = 0; bit < 8; ++bit)
+			{
+				//cout << offset << " ";
+				//b[offset] = cur & 1;
+				chunk[offset%CHUNK_SIZE] = cur & 1;
+				++offset;   // Move to next bit in b
+				if (offset%CHUNK_SIZE==0) {
+					unsigned long index = chunk.to_ulong();
+					//cout << index << " " << chunk << endl;
+					if (!(bf.test(index))) {
+						ok = 0;
+						return ok;
+					}
+					//cout << index << " " << chunk << endl;
+				}
+				cur >>= 1;  // Move to next bit in array
+			}
+	    	}
+	}
+	return ok;
+}
+
+string xor_func(string s1, int s2)
+{
+	string result = "";
+	for (int temp = 0; temp < s1.size(); temp++){
+  		result += s1[temp] ^ (s2+ temp) % 255;
+ 	}
+	return result;
+}
+
+string hash_result(string key,string value) {
+	unsigned int len = 20;
+	unsigned char* digest = (unsigned char*)malloc(sizeof(char) * SHA_DIGEST_LENGTH);
+	HMAC_CTX hctx;
+	HMAC_CTX_init(&hctx);
+	// Using sha1 hash engine here.
+	// You may use other hash engines. e.g EVP_md5(), EVP_sha224, EVP_sha512, etc
+	HMAC_Init_ex(&hctx, key.c_str(), strlen(key.c_str()), EVP_sha1(), NULL);
+	HMAC_Update(&hctx, (unsigned char*)value.c_str(), strlen(value.c_str()));
+	HMAC_Final(&hctx, digest, &len);
+	HMAC_CTX_cleanup(&hctx);
+	char mdString[20];
+	for(int i = 0; i < 20; i++)
+		 sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+	string myhash(mdString);
+	return myhash;
+}
+
+/*
+ * The resource handler
+ */ 
+static void
+hello_handler(coap_context_t *ctx, struct coap_resource_t *resource, 
+              const coap_endpoint_t *local_interface, coap_address_t *peer, 
+              coap_pdu_t *request, str *token, coap_pdu_t *response) 
+{
+	unsigned char buf[3];
+	
+	bool ok = 0;
+	unsigned char* data;
+	size_t         data_len;
+	string action;
+	if (coap_get_data(request, &data_len, &data))
+	{
+		string mydata(data,data+data_len);	
+		cout << "received: " << mydata << endl;
+		
+		Json::Reader reader;
+		//try{
+		Json::Value jsonObj;
+		bool parsingSuccessful = reader.parse(mydata, jsonObj);
+		int yourstep = jsonObj["step"].asInt();
+		if (yourstep==step) {
+			if (step==1) {
+				userid = jsonObj["userid"].asString(); cout << userid << endl;
+				action = jsonObj["action"].asString();
+				int challenge = jsonObj["challenge"].asInt(); cout << challenge << endl;
+				string bf_string = jsonObj["bloom"].asString();
+				//cout << "parse succeed" << endl;
+				bitset<BF_SIZE> client_bf(bf_string);
+				bf_add(keys,NUM_KEY,action);
+				bf_add(&keys[1],1,xor_func(userid,challenge));
+				if (bf==client_bf)
+					ok = 1;
+				int lastbit = BF_SIZE-1;
+				for (int i = BF_SIZE-1;i>0;i--) {
+					if (bf.test(i)) {
+						lastbit = i;
+						break;
+					}
+				}
+				//Json::StyledWriter styledWriter;
+				//std::cout << styledWriter.write(parsedFromString) << std::endl;
+		
+				if (ok) {
+					// create json
+					Json::Value fromScratch;
+					fromScratch["lastbit"] = lastbit;
+					challenge2 = rand();
+					string temp = hash_result(keys[1],xor_func(userid,challenge2));
+					fromScratch["hash"] = temp;
+					//fromScratch["action"] = action;
+					fromScratch["challenge"]= challenge2;
+					Json::FastWriter fastWriter;
+					std::string jsonMessage = fastWriter.write(fromScratch);
+					const char* response_data     = jsonMessage.c_str();
+					response->hdr->code           = COAP_RESPONSE_CODE(201);
+					response->hdr->type = COAP_MESSAGE_ACK;
+					coap_add_option(response, COAP_OPTION_CONTENT_TYPE, coap_encode_var_bytes(buf, COAP_MEDIATYPE_TEXT_PLAIN), buf);
+					coap_add_data  (response, strlen(response_data), (unsigned char *)response_data);
+					step++;
+				}
+				else {
+					response->hdr->code           = COAP_RESPONSE_CODE(403);
+					cout << "send error" << endl;
+				}
+				bf.reset();
+			}
+			else {
+				string yourhash = jsonObj["hash"].asString();
+				string myhash = hash_result(keys[2],xor_func(userid,challenge2));
+				//cout << "asdfasd" << endl;
+				cout << challenge2 << " " << userid << endl;
+				if (myhash==yourhash) { cout << "ok" << endl;
+					response->hdr->code           = COAP_RESPONSE_CODE(203);
+					//response->hdr->type = COAP_MESSAGE_ACK;
+					//coap_add_option(response, COAP_OPTION_CONTENT_TYPE, coap_encode_var_bytes(buf, COAP_MEDIATYPE_TEXT_PLAIN), buf);
+					//coap_add_data(response,2,"ok");
+				}
+				else {
+					response->hdr->code           = COAP_RESPONSE_CODE(403);
+					cout << "send error2" << endl;
+				}
+				step = 1;
+				//data = new unsigned char;
+				//delete data;
+				//data = NULL;
+				//return;
+			}
+		}
+		else { //not current step
+			response->hdr->code           = COAP_RESPONSE_CODE(401);
+			cout << "send error2" << endl;
+		}
+		
+		data = new unsigned char;
+		delete data;
+		data = NULL;
+	}
+	
+	
+	
+}
+
+int main(int argc, char* argv[])
+{
+	// load keys
+	FILE * pFile;
+	pFile = fopen ("server_keys","r");
+	int i = 0;
+	char line[20];
+	while (1) {
+		if (fgets(line,20, pFile) == NULL) break;
+		line[strcspn(line, "\n")] = 0;
+		keys[i] = line;
+		//cout << i << ": " << keys[i] << endl;
+		i++;
+	}
+
+	coap_context_t*  ctx;
+	coap_address_t   serv_addr;
+	coap_resource_t* hello_resource;
+	fd_set           readfds;    
+	/* Prepare the CoAP server socket */ 
+	coap_address_init(&serv_addr);
+	serv_addr.addr.sin.sin_family      = AF_INET;
+	serv_addr.addr.sin.sin_addr.s_addr = INADDR_ANY;
+	serv_addr.addr.sin.sin_port        = htons(5683); //default port
+	ctx                                = coap_new_context(&serv_addr);
+	if (!ctx) exit(EXIT_FAILURE);
+	/* Initialize the hello resource */
+	hello_resource = coap_resource_init((unsigned char *)"hello", 5, 0);
+	coap_register_handler(hello_resource, COAP_REQUEST_PUT, hello_handler);
+	coap_add_resource(ctx, hello_resource);
+	/*Listen for incoming connections*/
+	while (1) {
+		FD_ZERO(&readfds);
+		FD_SET( ctx->sockfd, &readfds );
+		int result = select( FD_SETSIZE, &readfds, 0, 0, NULL );
+		if ( result < 0 ) /* socket error */
+		{
+			exit(EXIT_FAILURE);
+		} 
+		else if ( result > 0 && FD_ISSET( ctx->sockfd, &readfds )) /* socket read*/
+		{	 
+				coap_read( ctx );       
+		} 
+	}    
+}

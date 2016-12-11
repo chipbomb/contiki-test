@@ -80,9 +80,9 @@ enum { OPTION_MAP_SIZE = sizeof(uint8_t) * 8 };
 #define IS_OPTION(packet, opt) ((packet)->options[opt / OPTION_MAP_SIZE] & (1 << (opt % OPTION_MAP_SIZE)))
 
 /* parsed message struct */
-typedef struct {
+typedef struct coap_packet {
   uint8_t *buffer; /* pointer to CoAP header / incoming packet buffer / memory to serialize packet */
-
+  struct coap_packet *next; // for LIST
   uint8_t version;
   coap_message_type_t type;
   uint8_t code;

@@ -50,7 +50,6 @@ SEPARATE_RESOURCE(res_b1_sep_b2, "title=\"Block1 + Separate + Block2 demo\"", NU
 static uint8_t big_msg[MAX_DATA_LEN];
 static size_t big_msg_len = 0;
 static coap_separate_t request_metadata;
-
 static void
 res_post_handler(void *request, void *response, uint8_t *buffer, uint16_t preferred_size, int32_t *offset)
 {

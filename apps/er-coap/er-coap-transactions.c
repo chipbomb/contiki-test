@@ -35,7 +35,6 @@
  * \author
  *      Matthias Kovatsch <kovatsch@inf.ethz.ch>
  */
-
 #include "contiki.h"
 #include "contiki-net.h"
 #include "er-coap-transactions.h"
@@ -81,6 +80,7 @@ coap_new_transaction(uint16_t mid, uip_ipaddr_t *addr, uint16_t port)
     t->port = port;
 
     list_add(transactions_list, t); /* list itself makes sure same element is not added twice */
+	PRINTF("added transaction mid = %u\n",mid);
   }
 
   return t;
@@ -105,12 +105,12 @@ coap_send_transaction(coap_transaction_t *t)
                                          %
                                          (clock_time_t)
                                          COAP_RESPONSE_TIMEOUT_BACKOFF_MASK);
-        PRINTF("Initial interval %f\n",
-               (float)t->retrans_timer.timer.interval / CLOCK_SECOND);
+        PRINTF("Initial interval %d\n",
+               (int)t->retrans_timer.timer.interval );
       } else {
         t->retrans_timer.timer.interval <<= 1;  /* double */
-        PRINTF("Doubled (%u) interval %f\n", t->retrans_counter,
-               (float)t->retrans_timer.timer.interval / CLOCK_SECOND);
+        PRINTF("Doubled (%u) interval %d\n", t->retrans_counter,
+               (int)t->retrans_timer.timer.interval );
       }
 
       /*FIXME

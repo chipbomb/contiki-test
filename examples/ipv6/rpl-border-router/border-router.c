@@ -105,6 +105,7 @@ PROCESS_THREAD(webserver_nogui_process, ev, data)
 AUTOSTART_PROCESSES(&border_router_process,&webserver_nogui_process);
 
 static const char *TOP = "<html><head><title>ContikiRPL</title></head><body>\n";
+//static const char *TOP = "asdf";
 static const char *BOTTOM = "</body></html>\n";
 #if BUF_USES_STACK
 static char *bufptr, *bufend;
@@ -112,7 +113,7 @@ static char *bufptr, *bufend;
     bufptr += snprintf(bufptr, bufend - bufptr, __VA_ARGS__);      \
   } while(0)
 #else
-static char buf[256];
+static char buf[250];
 static int blen;
 #define ADD(...) do {                                                   \
     blen += snprintf(&buf[blen], sizeof(buf) - blen, __VA_ARGS__);      \
@@ -146,7 +147,7 @@ PT_THREAD(generate_routes(struct httpd_state *s))
   static uip_ds6_route_t *r;
   static uip_ds6_nbr_t *nbr;
 #if BUF_USES_STACK
-  char buf[256];
+  char buf[250];
 #endif
 #if WEBSERVER_CONF_LOADTIME
   static clock_time_t numticks;
